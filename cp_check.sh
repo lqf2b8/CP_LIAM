@@ -282,6 +282,77 @@ echo "Only known bad packages are checked, there may be others." >> "$APP_REPORT
 echo "Consider reviewing installed packages manually by running dpkg -l" >> "$APP_REPORT"
 echo
 
+
+
+# ------------------------------------------------------------------
+# 11. Checking open ports and services
+# ------------------------------------------------------------------
+echo -e "[11] Checking open ports and services${NC}"
+
+listening=$(ss -tulnp 2>/dev/null)
+if [ -z "$listening" ]; then
+echo "Error: Unable to retrieve listening ports. Ensure 'ss' is installed and run as root if needed."
+exit 1
+fi
+
+echo "$listening" >> "$SYS_REPORT"
+
+echo "Analyzed Listening Ports and Suggestions:"
+echo "$listening" | grep LISTEN | while read -r line; do
+    port=$(echo "$line" | awk '{print $5}' | cut -d':' -f2)
+    service=$(echo "$line" | awk '{print $7}' | cut -d',' -f2)
+    echo "Port $port is open by service $service." >> "$SYS_REPORT"
+    echo "   Suggestion: Review if $service is necessary. If not, disable it using:" >> "$SYS_REPORT"
+    echo "   sudo systemctl stop $service && sudo systemctl disable $service" >> "$SYS_REPORT"
+done
+
+case $port in
+    22)
+        echo "Suggestion: This is typically SSH. Ensure it's needed. Fix: Strengthen config (/etc/ssh/sshd_config) - disable root login, use key auth. If unnecessary, stop with 'sudo systemctl stop ssh' and disable 'sudo systemctl disable ssh'."
+        ;;
+    80|8080)
+        echo "Suggestion: This is HTTP (web server like Apache/Nginx). If not a web server, close it. Fix: Stop Apache 'sudo systemctl stop apache2' or Nginx 'sudo systemctl stop nginx'. Add firewall rule: 'sudo ufw deny 80'."
+        ;;
+    443|8443)
+        echo "Suggestion: This is HTTPS. Ensure TLS is configured securely. If unnecessary, stop the web service as above and block port: 'sudo ufw deny 443'."
+        ;;
+    21)
+        echo "Suggestion: FTP - Insecure; use SFTP instead. Fix: Uninstall vsftpd 'sudo apt remove vsftpd' or stop 'sudo systemctl stop vsftpd'. Block port: 'sudo ufw deny 21'."
+        ;;
+    25|465|587)
+        echo "Suggestion: SMTP (email). If not needed, disable. Fix: Stop Postfix/Exim 'sudo systemctl stop postfix'. Block ports: 'sudo ufw deny 25'."
+        ;;
+    53)
+        echo "Suggestion: DNS. Only run if this is a DNS server. Fix: Stop bind9 'sudo systemctl stop bind9'. Block if exposed: 'sudo ufw deny 53'."
+        ;;
+    3306)
+        echo "Suggestion: MySQL/MariaDB. Bind to localhost if possible. Fix: Edit /etc/mysql/mysql.conf.d/mysqld.cnf, set bind-address=127.0.0.1, restart 'sudo systemctl restart mysql'. Block externally: 'sudo ufw deny 3306'."
+        ;;
+    5432)
+        echo "Suggestion: PostgreSQL. Similar to MySQL, bind to localhost. Fix: Edit postgresql.conf, set listen_addresses='localhost', restart 'sudo systemctl restart postgresql'."
+        ;;
+    445|139)
+        echo "Suggestion: SMB (file sharing). High risk if exposed. Fix: Stop Samba 'sudo systemctl stop smbd'. Uninstall if unused 'sudo apt remove samba'. Block: 'sudo ufw deny 445'."
+        ;;
+    3389)
+        echo "Suggestion: RDP (remote desktop). Use only with VPN. Fix: If xrdp, stop 'sudo systemctl stop xrdp'. Prefer SSH."
+        ;;
+    *)
+        echo "Suggestion: Unknown/common port. Review if necessary. Fix: Kill process if unneeded 'sudo kill <PID>', or stop service. Block with firewall: 'sudo ufw deny $port'. Investigate process for legitimacy."
+        ;;
+esac
+echo
+echo "=== General Recommendations ==="
+echo "1. Enable and configure firewall: 'sudo ufw enable' and allow only necessary ports (e.g., 'sudo ufw allow 22')."
+echo "2. Update system: 'sudo apt update && sudo apt upgrade'."
+echo "3. Remove unnecessary services: Use 'sudo apt purge <package>'."
+echo "4. Run regular scans: Install and use tools like rkhunter or chkrootkit."
+echo "5. For CyberPatriot: Check scoring engine rules; close all non-essential ports."
+
+
+
+
+
 echo "============================================================"
 echo "               CHECKLIST COMPLETE!"
 echo "============================================================"${NC}
